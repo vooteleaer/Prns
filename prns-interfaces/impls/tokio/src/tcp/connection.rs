@@ -140,7 +140,7 @@ pub(crate) fn tune_i2p(stream: &TcpStream) {
 pub(crate) fn tune_for_tunnel(stream: &TcpStream, tunnel: TcpTunnelMode) {
     let _ = stream.set_nodelay(true);
     let socket = SockRef::from(stream);
-    let (probe_after, probe_interval, probes, _user_timeout) = match tunnel {
+    let (probe_after, _probe_interval, _probes, _user_timeout) = match tunnel {
         #[cfg(feature = "tcp")]
         TcpTunnelMode::Direct => (
             TCP_PROBE_AFTER,
@@ -155,10 +155,12 @@ pub(crate) fn tune_for_tunnel(stream: &TcpStream, tunnel: TcpTunnelMode) {
             I2P_USER_TIMEOUT,
         ),
     };
-    let keepalive = TcpKeepalive::new()
-        .with_time(probe_after)
-        .with_interval(probe_interval)
-        .with_retries(probes);
+    let keepalive = TcpKeepalive::new().with_time(probe_after);
+    // socket2 exposes no keepalive interval or probe count on Haiku, so Haiku keeps only the idle time.
+    #[cfg(not(target_os = "haiku"))]
+    let keepalive = keepalive
+        .with_interval(_probe_interval)
+        .with_retries(_probes);
     let _ = socket.set_tcp_keepalive(&keepalive);
     #[cfg(target_os = "linux")]
     let _ = socket.set_tcp_user_timeout(Some(_user_timeout));

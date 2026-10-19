@@ -24,7 +24,128 @@ sys.modules[SPEC.name] = contracts
 SPEC.loader.exec_module(contracts)
 
 
+class CloudflareDeploymentTargetTests(unittest.TestCase):
+    def test_domain_target_uses_all_pages_and_rejects_invalid_matches(self) -> None:
+        workflow = (ROOT / ".github/workflows/site-release.yml").read_text()
+        step = workflow.split("      - name: Resolve the Pages project that owns the public domain\n", 1)[1]
+        shell = textwrap.dedent(step.split("        run: |\n", 1)[1].split("      - name:", 1)[0])
+        code = shell.split("python3 - <<'PYTHON'\n", 1)[1].rsplit("\nPYTHON", 1)[0]
+        project = {"name": "public-site", "production_branch": "production", "domains": ["prns.dev"]}
+        unrelated = {"name": "preview", "production_branch": "main", "domains": ["preview.pages.dev"]}
+        cases = [
+            ("later page", [[unrelated] * 10, [project]], "project=public-site\nbranch=production\n"),
+            ("empty final page", [[unrelated] * 9 + [project], []], "project=public-site\nbranch=production\n"),
+            ("API rejection", [{"error": "Invalid page size"}], None),
+            ("missing", [[unrelated]], None),
+            ("ambiguous", [[project, project]], None),
+            ("invalid branch", [[{**project, "production_branch": "main\ninjected=value"}]], None),
+        ]
+        fixture = textwrap.dedent("""\
+            from io import StringIO
+            import json
+            import sys
+            from unittest.mock import patch
+            from urllib.error import HTTPError
+            from urllib.parse import parse_qs, urlsplit
+
+            pages = json.load(sys.stdin)
+            def response(request, timeout):
+                assert request.get_header("Authorization") == "Bearer fixture-token"
+                assert request.get_header("User-agent") == "prns-release-deploy/1"
+                query = parse_qs(urlsplit(request.full_url).query)
+                assert query["per_page"] == ["10"]
+                page = int(query["page"][0])
+                if isinstance(pages[page - 1], dict):
+                    raise HTTPError(request.full_url, 400, "Bad Request", {}, StringIO(json.dumps({
+                        "errors": [{"code": 123, "message": pages[page - 1]["error"]}],
+                    })))
+                return StringIO(json.dumps({
+                    "success": True,
+                    "result": pages[page - 1],
+                }))
+            with patch("urllib.request.urlopen", side_effect=response):
+                exec(CODE)
+        """).replace("CODE", repr(code))
+        for name, pages, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "outputs"
+                result = subprocess.run(
+                    [sys.executable, "-c", fixture],
+                    input=json.dumps(pages),
+                    text=True,
+                    capture_output=True,
+                    env={
+                        **os.environ,
+                        "CLOUDFLARE_API_TOKEN": "fixture-token",
+                        "CLOUDFLARE_ACCOUNT_ID": "fixture-account",
+                        "CLOUDFLARE_SITE_HOST": "prns.dev",
+                        "GITHUB_OUTPUT": str(output),
+                    },
+                )
+                self.assertNotIn("fixture-token", result.stdout + result.stderr)
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                    if name == "API rejection":
+                        self.assertIn("Invalid page size", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text(), expected)
+
+
 class SuiteFinalizationCustodyTests(unittest.TestCase):
+    def test_suite_sign_stages_the_bundled_hotfix_qualification_helper(self) -> None:
+        workflow = (ROOT / ".github/workflows/suite-sign.yml").read_text()
+        self.assertIn("stage target/flasher/candidate/qualification/flasher_hotfix.py", workflow)
+
+    def test_stable_promotion_compares_canonical_inventory_and_rejects_changes(self) -> None:
+        workflow = (ROOT / ".github/workflows/suite-promote.yml").read_text()
+        initial = workflow.split("      - name: Verify exact prerelease identity and download all assets\n", 1)[1]
+        initial = textwrap.dedent(initial.split("        run: |\n", 1)[1].split("      - name:", 1)[0])
+        final = workflow.split("      - name: Mark the verified GitHub Release stable without replacing assets\n", 1)[1]
+        final = textwrap.dedent(final.split("        run: |\n", 1)[1])
+        assets = [{"name": "native.tar.gz", "size": 7, "digest": "sha256:" + "c" * 64}]
+        for changed in ["unchanged", "before", "after"]:
+            with self.subTest(change=changed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "VERSION").write_text("0.3.8\n")
+                gh = root / "gh"
+                gh.write_text("#!" + sys.executable + "\n" + textwrap.dedent('''\
+                    import json, os, sys
+                    from pathlib import Path
+                    args = sys.argv[1:]
+                    marker = Path('edited')
+                    if args[:2] == ['release', 'download']:
+                        raise SystemExit(0)
+                    if args[:2] == ['release', 'edit']:
+                        marker.write_text('edited')
+                        raise SystemExit(0)
+                    if args[:2] != ['release', 'view']:
+                        raise SystemExit('unexpected operation')
+                    if len(args) not in [5, 7] or args[3] != '--json' or len(args) == 7 and args[5] != '--jq':
+                        raise SystemExit('unsupported release view arguments')
+                    fields = args[args.index('--json') + 1]
+                    assets = json.loads(os.environ['ASSET_FIXTURE'])
+                    changed = os.environ['CHANGE_FIXTURE']
+                    if fields == 'assets' and (changed == 'before' or changed == 'after' and marker.exists()):
+                        assets[0]['size'] += 1
+                    data = {'isDraft': False, 'isPrerelease': not marker.exists(),
+                        'targetCommitish': 'a' * 40, 'assets': assets}
+                    if '--jq' in args:
+                        value = data['isPrerelease'] if fields == 'isPrerelease' else assets
+                    else:
+                        value = {field: data[field] for field in fields.split(',')}
+                    print(json.dumps(value, separators=(',', ':')))
+                    '''))
+                gh.chmod(0o700)
+                result = subprocess.run(["bash", "-e", "-c", initial + "\n" + final], cwd=root,
+                    capture_output=True, text=True, env={**os.environ,
+                        "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                        "SOURCE_COMMIT": "a" * 40, "ASSET_FIXTURE": json.dumps(assets),
+                        "CHANGE_FIXTURE": changed})
+                self.assertEqual(result.returncode == 0, changed == "unchanged", result.stderr)
+                self.assertEqual((root / "edited").exists(), changed != "before")
+
     def test_anonymous_pulls_bind_both_platforms_to_the_verified_index(self) -> None:
         workflow = (ROOT / ".github/workflows/suite-promote.yml").read_text()
         block = workflow.split("      - name: Prove public anonymous pulls on both architectures\n", 1)[1]

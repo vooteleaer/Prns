@@ -1,7 +1,9 @@
 use personal_rns::runtime::NoPersistence;
+use personal_rns::PlanRuntimeContext;
 use std::io;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use std::time::Instant;
 
 use personal_hopspot_core::{
@@ -30,6 +32,7 @@ use personal_rns::wifi_direct::WifiDirectAuto;
 use tokio::sync::oneshot;
 
 use super::{
+    configured::ConfiguredInterfaces,
     persistence::{self, PersistenceRestore, PersistenceWorker},
     EnginePorts, EngineResources, EngineStartError, PlatformLinks, WorkerExit, ANDROID_PORT,
     ANNOUNCE_APP_DATA, NODE_ANNOUNCE_APP_DATA, USB_INTERFACE_ID, WORKER_SHUTDOWN_TIMEOUT,
@@ -221,6 +224,11 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
     let wa_status = wifi_aware.status();
     handle.supervise(wifi_aware);
 
+    crate::rnode_ble::install();
+    let configured = Arc::new(ConfiguredInterfaces::default());
+    let plan_context = PlanRuntimeContext::with_rns_i2p_storage(&storage_dir, node_identity_hash)
+        .with_ble_identity(ble_identity);
+
     let resources = EngineResources {
         started_at: Instant::now(),
         node_identity_hash,
@@ -237,6 +245,8 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
         ports,
         persistence: persistence_health,
         runtime: tokio::runtime::Handle::current(),
+        configured: configured.clone(),
+        plan_context: plan_context.clone(),
     };
     let mut node_run = Box::pin(node.run());
     let initialized = {
@@ -264,6 +274,17 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
     }
     if ready_tx.send(Ok(resources)).is_err() {
         return WorkerExit::Stopped;
+    }
+
+    // User-configured interfaces come up after the node reports ready, so a slow dial or a bad
+    // config file never holds up the built-in radios or the shared instance.
+    {
+        let handle = handle.clone();
+        tokio::spawn(async move {
+            if let Err(error) = configured.reload(&handle, &storage_dir, &plan_context).await {
+                log::warn!("hopspot: configured interfaces not loaded: {error}");
+            }
+        });
     }
 
     let persistence_run = persistence.run(shutdown_rx);

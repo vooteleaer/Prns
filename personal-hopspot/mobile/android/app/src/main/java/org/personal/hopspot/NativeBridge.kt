@@ -77,6 +77,33 @@ object NativeBridge {
 
     external fun nativeSidebandJoinConfig(): String?
 
+    /** Takes ownership of [fd]; returns 0 when attached, nonzero (and closes [fd]) otherwise. */
+    external fun nativeAdoptLocalClient(fd: Int, uid: Int): Int
+
+    /** User-configured interfaces and the dashboard's per-type forms, as JSON. */
+    external fun nativeConfiguredInterfaces(): String?
+
+    /** Apply one dashboard edit (see `engine/configured.rs`); null on success, else the reason. */
+    external fun nativeApplyInterfaceEdit(request: String): String?
+
+    /** The interfaces the app runs itself, as a JSON array. */
+    external fun nativeBuiltInInterfaces(): String?
+
+    external fun nativeToggleBuiltInInterface(idHex: String): Boolean
+
+    /** Next `ble://` RNode connect request as `"<session>\t<target>"`, or null after the timeout. */
+    external fun nativeRNodeBleNextRequest(timeoutMillis: Long): String?
+
+    /** Report the RNode GATT link ready (null [error]) or failed. */
+    external fun nativeRNodeBleOpened(session: Int, error: String?)
+
+    external fun nativeRNodeBleInbound(session: Int, bytes: ByteArray): Boolean
+
+    /** Bytes to write to the RNode, an empty array when idle, or null once the session closed. */
+    external fun nativeRNodeBleTakeOutbound(session: Int, timeoutMillis: Long): ByteArray?
+
+    external fun nativeRNodeBleDisconnected(session: Int)
+
     external fun nativeNodeIdentityHashHex(): String?
 
     external fun nativeBleIdentityHex(): String?

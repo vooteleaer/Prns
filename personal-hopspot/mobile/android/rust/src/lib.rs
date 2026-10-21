@@ -2,6 +2,7 @@ mod bridge;
 mod engine;
 mod face;
 mod jni;
+mod rnode_ble;
 mod service_discovery;
 
 use prns_ffi::bluetooth_auto::android as bluetooth_auto;

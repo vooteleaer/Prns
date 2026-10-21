@@ -122,6 +122,7 @@ tasks.register("assembleProduction") {
 tasks.register("verifyExperimentalWifiDirectDisabled")
 
 dependencies {
+    implementation(project(":api"))
     implementation(libs.usb.serial)
     testImplementation(libs.junit)
     testImplementation(libs.mockito.core)

@@ -168,7 +168,28 @@ struct MatchingPeripheral {
     bond_status: BondStatus,
 }
 
+/// Opens an RNode's Nordic UART byte stream on a platform whose Bluetooth LE stack btleplug
+/// cannot reach, such as Android, where GATT is only available from the app's Java side.
+pub type RNodeBleOpener = std::sync::Arc<
+    dyn Fn(
+            RNodeBleTarget,
+        ) -> std::pin::Pin<Box<dyn Future<Output = io::Result<DuplexStream>> + Send>>
+        + Send
+        + Sync,
+>;
+
+static PLATFORM_OPENER: std::sync::OnceLock<RNodeBleOpener> = std::sync::OnceLock::new();
+
+/// Route every `ble://` RNode through `opener` instead of btleplug. Install it once, before any
+/// RNode interface is attached; returns false if an opener was already installed.
+pub fn install_platform_ble_opener(opener: RNodeBleOpener) -> bool {
+    PLATFORM_OPENER.set(opener).is_ok()
+}
+
 pub(super) async fn open(target: &RNodeBleTarget) -> io::Result<DuplexStream> {
+    if let Some(opener) = PLATFORM_OPENER.get() {
+        return opener(target.clone()).await;
+    }
     open_inner(target).await.map_err(io::Error::other)
 }
 

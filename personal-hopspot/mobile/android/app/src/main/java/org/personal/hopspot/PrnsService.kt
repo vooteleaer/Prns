@@ -40,6 +40,7 @@ class PrnsService : Service() {
     private var wifiDirectLink: WifiDirectLink? = null
     private var wifiAwareLink: WifiAwareLink? = null
     private var bleLink: BleLink? = null
+    private var rnodeBleLink: RNodeBleLink? = null
     private var serviceStartedAtElapsedMs: Long = 0L
     private var lastServiceError: String? = null
     private var isForeground = false
@@ -202,6 +203,12 @@ class PrnsService : Service() {
                 null
             }
         }
+        if (rnodeBleLink == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Always running so a `ble://` RNode interface can ask for its link at any time; it
+            // reports missing permissions back to the dashboard instead of staying silent.
+            Log.i(TAG, "starting RNode Bluetooth LE link")
+            rnodeBleLink = RNodeBleLink(applicationContext).also { it.start() }
+        }
         if (bleLink == null) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                 Log.i(TAG, "Bluetooth LE Auto requires Android 10 or newer")
@@ -224,6 +231,9 @@ class PrnsService : Service() {
 
     @Synchronized
     private fun stopPlatformLinks() {
+        runCatching { rnodeBleLink?.stop() }
+            .onFailure { Log.w(TAG, "RNode Bluetooth LE link failed to stop", it) }
+        rnodeBleLink = null
         runCatching { bleLink?.stop() }
             .onFailure { Log.w(TAG, "Bluetooth LE Auto link failed to stop", it) }
         bleLink = null
@@ -286,7 +296,7 @@ class PrnsService : Service() {
         val openIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, DashboardActivity::class.java),
             immutablePendingIntentFlags(),
         )
         val stopIntent = PendingIntent.getService(
@@ -534,8 +544,8 @@ class PrnsService : Service() {
         private const val TAG = "PrnsService"
         private const val NOTIFICATION_ID = 42
         private const val NOTIFICATION_CHANNEL = "personal_rns_node"
-        private const val LOCAL_RNS_PORT = 37428
-        private const val RPC_PORT = LOCAL_RNS_PORT + 1
+        internal const val LOCAL_RNS_PORT = 37428
+        internal const val RPC_PORT = LOCAL_RNS_PORT + 1
 
         fun start(context: Context) {
             val intent = Intent(context, PrnsService::class.java).setAction(ACTION_START)

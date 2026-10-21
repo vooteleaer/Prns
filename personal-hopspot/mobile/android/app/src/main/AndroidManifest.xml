@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <permission
         android:name="org.personal.hopspot.permission.PRNS_CLIENT"
@@ -76,14 +78,33 @@
             </intent-filter>
         </service>
 
-        <activity
-            android:name=".MainActivity"
+        <!-- Public hub contract (see the api module): open to every installed app, like the
+             loopback shared-instance listener it complements. -->
+        <service
+            android:name=".PrnsHubService"
             android:exported="true"
-            android:screenOrientation="portrait">
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="org.personal.hopspot.action.BIND_PRNS_HUB" />
+            </intent-filter>
+        </service>
+
+        <activity
+            android:name=".DashboardActivity"
+            android:exported="true"
+            android:label="Personal RNS">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- The Hopspot face: the same 64x128 panel the embedded Hopspots show. USB attach
+             intents land here so an attached Hopspot is driven from its familiar face. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>

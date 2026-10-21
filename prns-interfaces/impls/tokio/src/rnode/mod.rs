@@ -3,6 +3,8 @@ mod ble;
 pub(crate) mod host;
 pub mod multi;
 
+pub use ble::{install_platform_ble_opener, RNodeBleOpener};
+
 use std::future::Future;
 use std::io;
 use std::time::Duration;

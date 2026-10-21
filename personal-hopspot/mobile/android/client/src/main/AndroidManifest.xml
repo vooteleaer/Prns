@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 11+ hides other packages unless declared; this merges into every consumer. -->
+    <queries>
+        <package android:name="org.personal.hopspot" />
+    </queries>
+
+</manifest>

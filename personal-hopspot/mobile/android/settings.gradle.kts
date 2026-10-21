@@ -17,3 +17,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "PersonalHopspot"
 include(":app")
+include(":api")
+include(":client")
+include(":samples:hub-consumer")

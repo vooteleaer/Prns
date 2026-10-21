@@ -1,11 +1,14 @@
+mod configured;
 mod persistence;
 mod sideband_join;
 mod worker;
 
 use core::fmt::Write as _;
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,12 +21,14 @@ use personal_rns::engine::{AnnounceAppData, AnnounceNow, AnnounceTarget, PrnsCom
 use personal_rns::identity::IdentityHash;
 use personal_rns::interfaces::bluetooth_auto::BleIdentity;
 use personal_rns::interfaces::{
-    DiscoveryGroupApplyOutcome, DiscoveryGroupSet, InterfaceId, InterfaceKind, InterfaceSnapshot,
-    InterfaceStatus,
+    ConnectionState, DiscoveryGroupApplyOutcome, DiscoveryGroupSet, InterfaceId, InterfaceKind,
+    InterfaceSnapshot, InterfaceStatus, Membership,
 };
 use personal_rns::manifold::tokio::TokioInterfaceStatus;
 use personal_rns::runtime::{PrnsNodeHandle, RuntimeHealth};
 use personal_rns::shared_instance::rns_rpc::RpcAuthenticationKey;
+#[cfg(unix)]
+use personal_rns::shared_instance::SharedInstanceClient;
 use personal_rns::wifi_auto::AutoWifiStatus;
 use personal_rns::wifi_aware::WifiAwareStatus;
 use personal_rns::wifi_direct::WifiDirectStatus;
@@ -35,7 +40,9 @@ use crate::bridge::AndroidUsbBridge;
 use crate::service_discovery::AndroidServiceDiscoveryBridge;
 use crate::wifi_aware::AndroidWifiAwareBridge;
 use crate::wifi_direct::AndroidWifiDirectBridge;
+use configured::ConfiguredInterfaces;
 use persistence::{PersistenceHealth, PersistenceSnapshot};
+use personal_rns::PlanRuntimeContext;
 
 const USB_INTERFACE_ID: InterfaceId = InterfaceId::new([0xD0; 8]);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -80,6 +87,8 @@ pub(super) struct EngineResources {
     pub(super) ports: EnginePorts,
     pub(super) persistence: PersistenceHealth,
     pub(super) runtime: tokio::runtime::Handle,
+    pub(super) configured: Arc<ConfiguredInterfaces>,
+    pub(super) plan_context: PlanRuntimeContext,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -672,6 +681,211 @@ pub(crate) fn announce() {
         }));
 }
 
+const CONFIG_RELOAD_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The dashboard's view of the user-configured interfaces, as JSON (see `configured::describe`).
+/// Readable while the engine is stopped, as long as it has been started once in this process.
+pub(crate) fn configured_interfaces_json() -> Result<String, String> {
+    let (storage_dir, running) = {
+        let mut manager = lock_manager();
+        manager.reap_finished();
+        let storage_dir = manager
+            .storage_dir
+            .clone()
+            .ok_or("the node has not been started")?;
+        let running = manager
+            .process
+            .as_ref()
+            .and_then(|process| process.resources.as_ref())
+            .map(|resources| (resources.configured.clone(), resources.handle.interfaces()));
+        (storage_dir, running)
+    };
+    configured::describe(
+        &storage_dir,
+        running
+            .as_ref()
+            .map(|(configured, snapshots)| (configured.as_ref(), snapshots.clone())),
+    )
+}
+
+/// The interfaces the app runs itself (built-in radios, the shared-instance listener, and the
+/// apps attached to it), as JSON for the dashboard. Fleet members of configured interfaces are
+/// left to `configured_interfaces_json`.
+pub(crate) fn built_in_interfaces_json() -> String {
+    let (snapshots, configured_ids) = {
+        let mut manager = lock_manager();
+        manager.reap_finished();
+        manager
+            .process
+            .as_ref()
+            .and_then(|process| process.resources.as_ref())
+            .map(|resources| {
+                (
+                    resources.handle.interface_inventory(),
+                    resources.configured.attached_ids(),
+                )
+            })
+            .unwrap_or_default()
+    };
+    let interfaces = snapshots
+        .into_iter()
+        .filter(|entry| !configured_ids.contains(&entry.snapshot.id))
+        .filter(|entry| matches!(entry.snapshot.membership, Membership::Independent))
+        .map(|entry| {
+            let snapshot = entry.snapshot;
+            let label = classify(snapshot.id)
+                .map(|(_, label)| label.as_str().to_string())
+                .unwrap_or_else(|| "Interface".to_string());
+            serde_json::json!({
+                "id": hex(snapshot.id.as_bytes()),
+                "label": label,
+                "name": entry.name,
+                "kind": snapshot.id.kind().map(|kind| format!("{kind:?}")),
+                "online": snapshot.connection.is_online(),
+                "enabled": snapshot.connection != ConnectionState::Disabled,
+                "connection": format!("{:?}", snapshot.connection).to_ascii_lowercase(),
+                "toggleable": is_toggleable(snapshot.id),
+                "rx_bytes": snapshot.rx_bytes,
+                "tx_bytes": snapshot.tx_bytes,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::Value::Array(interfaces).to_string()
+}
+
+fn is_toggleable(id: InterfaceId) -> bool {
+    id == USB_INTERFACE_ID
+        || matches!(
+            id.kind(),
+            Some(
+                InterfaceKind::AutoWifi
+                    | InterfaceKind::BluetoothAuto
+                    | InterfaceKind::WifiDirect
+                    | InterfaceKind::WifiAware
+            )
+        )
+}
+
+/// Toggle a built-in radio by the hex id `built_in_interfaces_json` reported.
+pub(crate) fn toggle_interface_hex(id_hex: &str) -> bool {
+    let Some(id) = parse_interface_id(id_hex) else {
+        return false;
+    };
+    if !is_toggleable(id) {
+        return false;
+    }
+    toggle_interface(id);
+    true
+}
+
+fn parse_interface_id(id_hex: &str) -> Option<InterfaceId> {
+    let mut bytes = [0u8; 8];
+    if id_hex.len() != bytes.len() * 2 {
+        return None;
+    }
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(id_hex.get(index * 2..index * 2 + 2)?, 16).ok()?;
+    }
+    Some(InterfaceId::new(bytes))
+}
+
+/// Apply one dashboard edit to the config file and, when the node is running, reload the
+/// configured interfaces so the change takes effect without restarting the app.
+pub(crate) fn apply_interface_edit(request: &str) -> Result<(), String> {
+    let (storage_dir, running) = {
+        let mut manager = lock_manager();
+        manager.reap_finished();
+        let storage_dir = manager
+            .storage_dir
+            .clone()
+            .ok_or("the node has not been started")?;
+        let running = manager
+            .process
+            .as_ref()
+            .and_then(|process| process.resources.as_ref())
+            .map(|resources| {
+                (
+                    resources.runtime.clone(),
+                    resources.handle.clone(),
+                    resources.configured.clone(),
+                    resources.plan_context.clone(),
+                )
+            });
+        (storage_dir, running)
+    };
+    configured::apply(&storage_dir, request)?;
+    let Some((runtime, handle, configured, context)) = running else {
+        return Ok(());
+    };
+    let (settled_tx, settled_rx) = mpsc::sync_channel(1);
+    runtime.spawn(async move {
+        let result = configured.reload(&handle, &storage_dir, &context).await;
+        let _ = settled_tx.send(result);
+    });
+    match settled_rx.recv_timeout(CONFIG_RELOAD_TIMEOUT) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            Err("saved; the node is still applying the change".to_string())
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err("saved, but the node stopped before applying it".to_string())
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalClientAdoptError {
+    EngineUnavailable,
+    Socket,
+}
+
+#[cfg(unix)]
+impl LocalClientAdoptError {
+    #[must_use]
+    pub(crate) const fn code(self) -> i32 {
+        match self {
+            Self::EngineUnavailable => 1,
+            Self::Socket => 2,
+        }
+    }
+}
+
+#[cfg(unix)]
+static BINDER_CLIENT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Attach one end of a socketpair handed over Binder as a shared-instance local client, the same
+/// interface a loopback TCP client of the local listener gets. `uid` is the calling app's Linux
+/// uid and only tags the channel, so each app's connection is distinguishable in snapshots.
+#[cfg(unix)]
+pub(crate) fn adopt_local_client(
+    stream: std::os::unix::net::UnixStream,
+    uid: u32,
+) -> Result<(), LocalClientAdoptError> {
+    let (handle, runtime) = {
+        let mut manager = lock_manager();
+        manager.reap_finished();
+        let resources = manager
+            .process
+            .as_ref()
+            .and_then(|process| process.resources.as_ref())
+            .ok_or(LocalClientAdoptError::EngineUnavailable)?;
+        (resources.handle.clone(), resources.runtime.clone())
+    };
+    stream
+        .set_nonblocking(true)
+        .map_err(|_| LocalClientAdoptError::Socket)?;
+    let stream = {
+        let _entered = runtime.enter();
+        tokio::net::UnixStream::from_std(stream).map_err(|_| LocalClientAdoptError::Socket)?
+    };
+    let nth = BINDER_CLIENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let channel_tag = format!("binder:{uid}#{nth}").into_bytes();
+    log::info!("hopspot: binder local client attached for uid {uid}");
+    let _ = handle.add_interface(SharedInstanceClient::new(channel_tag, stream));
+    Ok(())
+}
+
 pub(crate) fn usb_bridge() -> AndroidUsbBridge {
     lock_manager()
         .process
@@ -773,6 +987,45 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    fn local_client_count() -> u32 {
+        runtime_health().map_or(0, |health| health.local_client_count)
+    }
+
+    #[cfg(unix)]
+    fn wait_for_local_client_count(expected: u32) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while local_client_count() != expected {
+            assert!(
+                Instant::now() < deadline,
+                "local client count stayed at {} instead of {expected}",
+                local_client_count()
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(unix)]
+    fn assert_binder_local_client_attaches_and_detaches() {
+        let before = local_client_count();
+        let nth = BINDER_CLIENT_SEQUENCE.load(Ordering::Relaxed);
+        let expected_id = InterfaceId::from_channel_tag(
+            InterfaceKind::LocalClient,
+            format!("binder:10123#{nth}").as_bytes(),
+        );
+        let (peer, hub_end) = std::os::unix::net::UnixStream::pair().unwrap();
+        adopt_local_client(hub_end, 10_123).unwrap();
+        wait_for_local_client_count(before + 1);
+        assert!(
+            interface_snapshots()
+                .iter()
+                .any(|snapshot| snapshot.id == expected_id),
+            "the adopted socket is a local-client interface"
+        );
+        drop(peer);
+        wait_for_local_client_count(before);
+    }
+
     #[test]
     fn engine_stops_and_restarts_with_durable_identity_and_runtime_state() {
         let storage_dir =
@@ -787,7 +1040,17 @@ mod tests {
         assert!(first_sideband_config.contains(&format!("rpc_key = {first_key}")));
         let first_identity = identity_snapshot().unwrap();
         assert_eq!(persistence_snapshot().unwrap().successful_flushes, 1);
+        #[cfg(unix)]
+        assert_binder_local_client_attaches_and_detaches();
         stop().unwrap();
+        #[cfg(unix)]
+        {
+            let (_peer, hub_end) = std::os::unix::net::UnixStream::pair().unwrap();
+            assert_eq!(
+                adopt_local_client(hub_end, 10_123),
+                Err(LocalClientAdoptError::EngineUnavailable)
+            );
+        }
         assert_eq!(engine_state(), MobileEngineState::Stopped);
         for region in ["timebase", "routing_table", "tunnels", "known_destinations"] {
             assert!(storage_dir.join("prns").join(region).is_file());

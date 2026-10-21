@@ -21,6 +21,10 @@
             android:stopWithTask="false"
             tools:remove="android:permission"
             tools:replace="android:exported" />
+        <service
+            android:name=".PrnsHubService"
+            android:exported="false"
+            tools:replace="android:exported" />
     </application>
 
 </manifest>

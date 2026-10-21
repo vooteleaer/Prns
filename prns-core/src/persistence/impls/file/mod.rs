@@ -63,7 +63,19 @@ impl FileStore {
             // Confirm the full chain before caching readiness, including on retries.
             let absolute = fs::canonicalize(&self.dir)?;
             for directory in absolute.ancestors() {
-                sync_directory(directory)?;
+                match confirm_directory(directory) {
+                    Ok(()) => {}
+                    // A directory's creator can always open it, so an ancestor this process
+                    // cannot open was not created by any attempt of this store and is not part
+                    // of the chain it must confirm. Android app sandboxes hit this at
+                    // `/data/data`, which apps may traverse but not read.
+                    Err(error)
+                        if directory != absolute && error.kind() == ErrorKind::PermissionDenied =>
+                    {
+                        break;
+                    }
+                    Err(error) => return Err(FileStoreError::DurabilityUnconfirmed(error)),
+                }
             }
         }
         self.dir_ready = true;

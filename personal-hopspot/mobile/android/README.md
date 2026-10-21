@@ -28,6 +28,55 @@ The render path is pull-model and zero-copy: Kotlin owns a direct `ByteBuffer`,
 Rust draws the current `UiState` into it, Kotlin blits it nearest-neighbor into an
 `ARGB_8888` `Bitmap`. The panel is 64x128; bytes are `[R, G, B, A]` per pixel.
 
+## Dashboard
+
+The launcher screen (`DashboardActivity`) shows the node's state, how other apps reach
+the shared instance, and every interface:
+
+- **Built-in interfaces** are the radios the app drives itself (Wi-Fi Auto, Bluetooth
+  LE Auto, USB Auto, Wi-Fi Direct/Aware), plus the shared-instance listener and the apps
+  attached to it. The radios can be switched on and off.
+- **Configured interfaces** live in a Reticulum-style `config` file in the app's files
+  directory, the same format `prnsd` reads. The dashboard adds, edits, enables, disables and
+  removes TCP client/server, UDP, Backbone, I2P and WebSocket interfaces. Every edit is
+  validated against the whole file before it is written, then the node detaches and
+  re-attaches the configured interfaces without a restart. Settings the form does not show
+  survive an edit, so hand-tuned advanced keys are not lost.
+
+The Hopspot face (`MainActivity`) is still one tap away and still receives USB attach intents.
+
+## Hub interface for other apps
+
+The app doubles as a phone-wide Reticulum hub: one engine, one set of radios, and
+any installed app can route through it. There are two doors in, and both are
+open to every app, just as a desktop shared instance is open to every local
+process:
+
+- **Stock Reticulum apps** (Sideband, Python RNS) join the loopback shared
+  instance on `127.0.0.1:37428`, with RPC on `37429`. The long-press "copy
+  shared-instance config" action and the hub's `getSharedInstanceInfo()` both
+  hand out a complete client config, including the RPC key.
+- **Android apps** bind `PrnsHubService` (action
+  `org.personal.hopspot.action.BIND_PRNS_HUB`) through the typed AIDL contract
+  in [`api/`](api/), most easily via the [`client/`](client/README.md) library.
+  `openLocalClient()` returns one end of a socketpair that the engine attaches
+  as a shared-instance local client. It carries the same HDLC-framed packets as
+  the loopback listener, but without a TCP port and tagged with the caller's uid.
+
+The hub never starts the engine on a client's behalf, because Android does not
+let a background bind start a foreground service. A client that finds the
+engine stopped sends the user to the app with `PrnsHubClient.launchHubIntent()`.
+
+The older signature-protected Messenger interface (`BIND_PRNS_CLIENT` on
+`PrnsService`) is kept for same-signer apps and the instrumentation probes.
+
+[`samples/hub-consumer/`](samples/hub-consumer/) is a minimal third-party app.
+It binds the hub, shows its status, and holds a local client open:
+
+```
+./gradlew :samples:hub-consumer:installDebug
+```
+
 ## USB role model
 
 Android Hopspot supports both Android-side USB roles where the OS permits them.
@@ -87,11 +136,11 @@ From this directory (`personal-hopspot/mobile/android`), with the phone plugged 
 USB debugging authorized (`adb devices` should list it):
 
 ```
-./gradlew installDebug
-adb shell am start -n org.personal.hopspot/.MainActivity
+./gradlew :app:installDebug
+adb shell am start -n org.personal.hopspot/.DashboardActivity
 ```
 
-`installDebug` packages whatever `.so` is in `jniLibs/`, so rebuild the `.so`
+`:app:installDebug` packages whatever `.so` is in `jniLibs/`, so rebuild the `.so`
 first whenever the Rust changes. To install the prebuilt APK directly:
 
 ```

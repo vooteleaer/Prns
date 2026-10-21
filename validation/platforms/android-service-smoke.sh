@@ -113,6 +113,18 @@ if [[ -z "${lab_manifest}" ]]; then
 fi
 lab_service="$(sed -n '/<service/,/<\/service>/p' "${lab_manifest}")"
 
+# Print the one merged <service> element whose class is org.personal.hopspot.$2.
+service_block() {
+  awk -v name="android:name=\"org.personal.hopspot.$2\"" '
+    /<service/ { block = ""; inside = 1 }
+    inside { block = block $0 "\n" }
+    inside && /<\/service>/ { inside = 0; if (index(block, name)) printf "%s", block }
+  ' "$1"
+}
+prns_service="$(service_block "${manifest}" PrnsService)"
+hub_service="$(service_block "${manifest}" PrnsHubService)"
+lab_hub_service="$(service_block "${lab_manifest}" PrnsHubService)"
+
 grep -qF 'PrnsService' "${manifest}" || {
   echo "merged manifest is missing PrnsService" >&2
   exit 1
@@ -125,6 +137,26 @@ grep -qF 'org.personal.hopspot.action.BIND_PRNS_CLIENT' "${manifest}" || {
   echo "merged manifest is missing the shared-instance bind action" >&2
   exit 1
 }
+[[ "${prns_service}" == *'android:permission="org.personal.hopspot.permission.PRNS_CLIENT"'* ]] || {
+  echo "PrnsService lost its signature client permission" >&2
+  exit 1
+}
+[[ -n "${hub_service}" ]] || {
+  echo "merged manifest is missing PrnsHubService" >&2
+  exit 1
+}
+[[ "${hub_service}" == *'org.personal.hopspot.action.BIND_PRNS_HUB'* ]] || {
+  echo "merged manifest is missing the public hub bind action" >&2
+  exit 1
+}
+[[ "${hub_service}" == *'android:exported="true"'* ]] || {
+  echo "PrnsHubService is not exported to other apps" >&2
+  exit 1
+}
+if [[ "${hub_service}" == *'android:permission='* ]]; then
+  echo "PrnsHubService requires a permission; the hub contract is open to every app" >&2
+  exit 1
+fi
 grep -qF 'connectedDevice' "${manifest}" || {
   echo "merged manifest is missing the connectedDevice foreground-service type" >&2
   exit 1
@@ -183,6 +215,10 @@ if grep -qF 'org.personal.hopspot.permission.PRNS_CLIENT' "${lab_manifest}"; the
 fi
 [[ "${lab_service}" == *'android:exported="false"'* ]] || {
   echo "Wi-Fi Direct lab service is exported" >&2
+  exit 1
+}
+[[ "${lab_hub_service}" == *'android:exported="false"'* ]] || {
+  echo "Wi-Fi Direct lab exports the public hub service" >&2
   exit 1
 }
 [[ "${lab_service}" == *'android:foregroundServiceType="connectedDevice"'* ]] || {

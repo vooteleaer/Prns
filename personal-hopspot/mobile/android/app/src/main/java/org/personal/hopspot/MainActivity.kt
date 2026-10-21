@@ -1,6 +1,5 @@
 package org.personal.hopspot
 
-import android.Manifest
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipDescription
@@ -10,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
-import android.content.pm.PackageManager
 import android.os.BatteryManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -55,7 +53,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         hopspotView = HopspotView(this).also { setContentView(it) }
         startAndBindService()
-        requestMissingPermissions()
+        PrnsPermissions.requestMissing(this)
     }
 
     override fun onDestroy() {
@@ -72,49 +70,12 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        val current = permissionState()
+        val current = PrnsPermissions.state(this)
         val changed = lastPermissionState?.let { it != current } == true
         lastPermissionState = current
         if (changed) {
             refreshPlatformLinks()
         }
-    }
-
-    private fun requestMissingPermissions() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return
-        }
-        val needed = runtimePermissions().filter { permission ->
-            checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
-        }
-        if (needed.isNotEmpty()) {
-            requestPermissions(needed.toTypedArray(), PRNS_PERMISSION_REQUEST)
-        }
-    }
-
-    private fun runtimePermissions(): List<String> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return emptyList()
-        }
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions += Manifest.permission.POST_NOTIFICATIONS
-            permissions += Manifest.permission.NEARBY_WIFI_DEVICES
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions += listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT,
-            )
-        }
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
-            permissions += listOf(
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-            )
-        }
-        return permissions
     }
 
     private fun startAndBindService() {
@@ -127,15 +88,6 @@ class MainActivity : Activity() {
             )
         } else {
             service?.refreshPlatformLinks()
-        }
-    }
-
-    private fun permissionState(): List<Boolean> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return emptyList()
-        }
-        return runtimePermissions().map {
-            checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
         }
     }
 
@@ -154,15 +106,11 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != PRNS_PERMISSION_REQUEST) {
+        if (requestCode != PrnsPermissions.REQUEST_CODE) {
             return
         }
-        lastPermissionState = permissionState()
+        lastPermissionState = PrnsPermissions.state(this)
         refreshPlatformLinks()
-    }
-
-    private companion object {
-        private const val PRNS_PERMISSION_REQUEST = 1
     }
 }
 

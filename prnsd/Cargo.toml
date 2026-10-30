@@ -148,3 +148,8 @@ significant_drop_in_scrutinee = "warn"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+# if-addrs 0.13.4 with Haiku added to the systems without its netlink change notifier
+# (get_if_addrs itself is getifaddrs, which Haiku has); see third_party/if-addrs.
+[patch.crates-io]
+if-addrs = { path = "../third_party/if-addrs" }

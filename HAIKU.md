@@ -19,12 +19,21 @@ they can go upstream one by one.
   `third_party/if-addrs` and patched into prnsd's workspace until upstream
   has it.
 - **No netdev:** no Haiku support; its only user, `wifi-auto`, is unavailable.
+- **mio:** at least 1.2.4 (non-blocking socket creation on Haiku), plus
+  `accept4(SOCK_NONBLOCK)` on Haiku: an accepted socket there does not inherit
+  `O_NONBLOCK` from the listener, and mio assumed it does, so the first local
+  client of the shared instance got a blocking socket and the runtime stopped
+  (signals too). Carried in `third_party/mio` until upstream has it; every
+  Rust program using tokio on Haiku needs it (retifsd's local API too).
 - **Lifecycle locks:** Rust's std has no `File::try_lock` on Haiku ("try_lock()
   not supported"); prnsd's runtime and control locks use `flock(2)` there,
   through a Haiku-only `prns-ffi::file_lock`.
 
 So far: `tokio-cloud-host` (TCP, UDP, backbone, I2P, WebSocket, shared
-instance, …). Serial and RNode (`tokio-host`'s radio side) are next.
+instance, …). Tested on Haiku nightly hrev60299 (x86_64, a QEMU VM): a TCP
+connection to another Prns node, the shared instance with a local client
+(retifsd) attached, status over RPC, a clean shutdown on SIGTERM. Serial and
+RNode (`tokio-host`'s radio side) are next.
 
 ## Building on Haiku
 

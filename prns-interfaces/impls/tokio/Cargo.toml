@@ -62,7 +62,8 @@ zbus = { version = "4", optional = true, default-features = false, features = ["
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 nusb = { version = "0.2.4", optional = true, features = ["tokio"] }
 
-[target.'cfg(not(target_os = "ios"))'.dependencies]
+# netdev has no Haiku support: there wifi-auto (its only user) is unavailable.
+[target.'cfg(not(any(target_os = "ios", target_os = "haiku")))'.dependencies]
 netdev = { version = "0.45", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "windows"))'.dependencies]

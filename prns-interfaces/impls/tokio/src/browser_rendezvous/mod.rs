@@ -1,5 +1,9 @@
 mod catalog;
 mod http;
+#[cfg(not(target_os = "haiku"))]
+mod lan_discovery;
+#[cfg(target_os = "haiku")]
+#[path = "lan_discovery_none.rs"]
 mod lan_discovery;
 mod network;
 mod transport;

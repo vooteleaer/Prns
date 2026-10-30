@@ -49,6 +49,10 @@ serde = { version = "1", optional = true, features = ["derive"] }
 serde_json = { version = "1", optional = true }
 serde-pickle = { version = "1.2", optional = true }
 url = { version = "2", optional = true }
+
+# mdns-sd needs IP_PKTINFO (through socket-pktinfo), which Haiku's IPv4 stack lacks:
+# there browser-rendezvous runs without LAN discovery, and wifi-auto-mdns is unavailable.
+[target.'cfg(not(target_os = "haiku"))'.dependencies]
 mdns-sd = { version = "0.20.2", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -153,3 +153,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 # (get_if_addrs itself is getifaddrs, which Haiku has); see third_party/if-addrs.
 [patch.crates-io]
 if-addrs = { path = "../third_party/if-addrs" }
+# mio 1.2.4 accepting with accept4(SOCK_NONBLOCK) on Haiku: there an accepted socket
+# does not inherit O_NONBLOCK, and a blocking one stops the runtime; see third_party/mio.
+mio = { path = "../third_party/mio" }

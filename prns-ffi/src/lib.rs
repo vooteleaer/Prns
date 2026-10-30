@@ -33,6 +33,9 @@ pub mod ethernet;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod usb_serial;
 
+#[cfg(target_os = "haiku")]
+pub mod file_lock;
+
 #[cfg(target_os = "windows")]
 pub mod console;
 

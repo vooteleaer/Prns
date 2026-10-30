@@ -17,5 +17,9 @@ sha2 = "0.10"
 [target.'cfg(windows)'.dependencies]
 prns-ffi = { path = "../../prns-ffi", default-features = false }
 
+# flock(2) for the lifecycle locks, which std's File::try_lock lacks there.
+[target.'cfg(target_os = "haiku")'.dependencies]
+prns-ffi = { path = "../../prns-ffi", default-features = false }
+
 [lints]
 workspace = true

@@ -2,6 +2,7 @@
 
 mod active_config;
 mod error;
+mod file_lock;
 mod logs;
 mod paths;
 mod process;

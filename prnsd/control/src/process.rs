@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::os::unix::process::CommandExt;
 
 use crate::active_config::{self, ActiveConfigRecord};
+use crate::file_lock;
 use crate::logs::{open_log, rotate_log};
 use crate::record::{LogLane, ServiceKind, ServiceRecord, ServiceState};
 use crate::state::{
@@ -64,7 +65,7 @@ impl ControlLock {
         let file = open_lock(&paths.control_lock, "could not open prnsd control lock")?;
         let started = Instant::now();
         loop {
-            match file.try_lock() {
+            match file_lock::try_lock(&file) {
                 Ok(()) => return Ok(Self { file }),
                 Err(TryLockError::WouldBlock) if started.elapsed() < CONTROL_TIMEOUT => {
                     thread::sleep(POLL_INTERVAL);
@@ -83,7 +84,7 @@ impl ControlLock {
 
 impl Drop for ControlLock {
     fn drop(&mut self) {
-        let _ = self.file.unlock();
+        let _ = file_lock::unlock(&self.file);
     }
 }
 
@@ -110,7 +111,7 @@ impl ManagedProcess {
         let paths = ServicePaths::in_dir(state_dir);
         prepare_state_dir(&paths)?;
         let runtime_lock = open_lock(&paths.runtime_lock, "could not open prnsd runtime lock")?;
-        match runtime_lock.try_lock() {
+        match file_lock::try_lock(&runtime_lock) {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
                 return Err(ServiceError::ManagedInstanceAlreadyRunning);
@@ -157,7 +158,7 @@ impl ManagedProcess {
         }
         cleanup_stale(&paths)?;
         let runtime_lock = open_lock(&paths.runtime_lock, "could not open prnsd runtime lock")?;
-        match runtime_lock.try_lock() {
+        match file_lock::try_lock(&runtime_lock) {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
                 return Err(ServiceError::ManagedInstanceAlreadyRunning);
@@ -241,7 +242,7 @@ impl ManagedProcess {
 
 impl Drop for ManagedProcess {
     fn drop(&mut self) {
-        let _ = self.runtime_lock.unlock();
+        let _ = file_lock::unlock(&self.runtime_lock);
         remove_generation_if_matching(&self.paths.ready, self.generation);
         remove_generation_if_matching(&self.paths.stop, self.generation);
         if read_record(&self.paths)
@@ -398,10 +399,10 @@ fn spawn_managed(
 pub fn running(paths: &ServicePaths) -> Result<Option<ServiceRecord>, ServiceError> {
     prepare_state_dir(paths)?;
     let runtime_lock = open_lock(&paths.runtime_lock, "could not open prnsd runtime lock")?;
-    match runtime_lock.try_lock() {
+    match file_lock::try_lock(&runtime_lock) {
         Ok(()) => {
             cleanup_stale(paths)?;
-            runtime_lock.unlock().map_err(|source| ServiceError::Io {
+            file_lock::unlock(&runtime_lock).map_err(|source| ServiceError::Io {
                 operation: "could not unlock the prnsd runtime probe",
                 source,
             })?;

@@ -87,6 +87,10 @@ windows = { version = "0.58", features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
 
+# flock(2) for file locks, which Rust's std does not implement on Haiku (file_lock).
+[target.'cfg(target_os = "haiku")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "sync"] }
 

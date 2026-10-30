@@ -2,14 +2,15 @@ use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::file_lock;
 use crate::record::ServiceRecord;
 use crate::{ServiceError, ServicePaths};
 
 pub(crate) fn runtime_is_locked(paths: &ServicePaths) -> Result<bool, ServiceError> {
     let file = open_lock(&paths.runtime_lock, "could not open prnsd runtime lock")?;
-    match file.try_lock() {
+    match file_lock::try_lock(&file) {
         Ok(()) => {
-            file.unlock().map_err(|source| ServiceError::Io {
+            file_lock::unlock(&file).map_err(|source| ServiceError::Io {
                 operation: "could not unlock the prnsd runtime probe",
                 source,
             })?;

@@ -20,8 +20,9 @@ they can go upstream one by one.
   has it.
 - **No netdev:** no Haiku support; its only user, `wifi-auto`, is unavailable.
 - **mio:** at least 1.2.4 (non-blocking socket creation on Haiku), plus
-  `accept4(SOCK_NONBLOCK)` on Haiku: an accepted socket there does not inherit
-  `O_NONBLOCK` from the listener, and mio assumed it does, so the first local
+  `O_NONBLOCK` set after `accept` on Haiku (as proposed to mio upstream): an
+  accepted socket there does not inherit it from the listener, and mio
+  assumed it does, so the first local
   client of the shared instance got a blocking socket and the runtime stopped
   (signals too). Carried in `third_party/mio` until upstream has it; every
   Rust program using tokio on Haiku needs it (retifsd's local API too).

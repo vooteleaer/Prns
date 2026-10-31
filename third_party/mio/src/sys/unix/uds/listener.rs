@@ -64,6 +64,7 @@ pub(crate) fn accept(listener: &net::UnixListener) -> io::Result<(UnixStream, So
 
     #[cfg(not(any(
         target_os = "aix",
+        target_os = "haiku",
         target_os = "ios",
         target_os = "macos",
         target_os = "netbsd",
@@ -92,6 +93,7 @@ pub(crate) fn accept(listener: &net::UnixListener) -> io::Result<(UnixStream, So
 
     #[cfg(any(
         target_os = "aix",
+        target_os = "haiku",
         target_os = "ios",
         target_os = "macos",
         target_os = "netbsd",
@@ -121,6 +123,7 @@ pub(crate) fn accept(listener: &net::UnixListener) -> io::Result<(UnixStream, So
         #[cfg(any(
             all(target_arch = "x86", target_os = "android"),
             target_os = "espidf",
+            target_os = "haiku",
             target_os = "vita",
             target_os = "nto",
         ))]

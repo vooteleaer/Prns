@@ -194,9 +194,10 @@ PrnsdTeams()
 static bool
 PrnsdRunning()
 {
+	// The job's, or one this app ran itself.
 	bool running = false;
-	if (JobKnown(&running))
-		return running;
+	if (JobKnown(&running) && running)
+		return true;
 	return !PrnsdTeams().IsEmpty();
 }
 
@@ -209,8 +210,15 @@ StartPrnsd()
 	bool running = false;
 	if (JobKnown(&running)) {
 		BString error;
-		Roster("start", NULL, &error);
-		return error;
+		if (!Roster("start", NULL, &error))
+			return error;
+		// A job that "starts" and doesn't run (one an older package left,
+		// its requirements gone): then prnsd, run here.
+		for (int i = 0; i < 10; i++) {
+			if (PrnsdRunning())
+				return "";
+			snooze(500000);
+		}
 	}
 	if (!PrnsdTeams().IsEmpty())
 		return "";
@@ -234,11 +242,12 @@ static BString
 StopPrnsd()
 {
 	bool running = false;
-	if (JobKnown(&running)) {
+	if (JobKnown(&running) && running) {
 		BString error;
-		Roster("stop", NULL, &error);
-		return error;
+		if (!Roster("stop", NULL, &error))
+			return error;
 	}
+	// And one this app ran itself, if any.
 	BStringList teams = PrnsdTeams();
 	for (int32 i = 0; i < teams.CountStrings(); i++)
 		kill(atoi(teams.StringAt(i).String()), SIGTERM);

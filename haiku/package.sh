@@ -12,7 +12,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 APP=$HERE/build/Prns
 STAGE=$HERE/build/package
-VERSION=$(tr -d ' \n' < "$ROOT/VERSION" | tr '-' '_')-1
+VERSION=$(tr -d ' \n' < "$ROOT/VERSION" | tr '-' '_')-2
 ARCH=x86_64
 # Every package in a pkgman repository has its vendor: set it to the
 # repository's when publishing in one (VENDOR=retifs haiku/package.sh).

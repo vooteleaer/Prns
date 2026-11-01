@@ -98,19 +98,55 @@ pub(crate) async fn connect(
     target: &str,
     settings: TcpConnectionSettings,
 ) -> io::Result<TcpStream> {
-    let address = resolve(target, settings.address_family).await?;
-    tokio::time::timeout(settings.connect_timeout, TcpStream::connect(address))
-        .await
-        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TCP connect timed out"))?
+    // Every address the name has, the preferred one first: a host with an
+    // IPv6 address is still reached over IPv4 where this machine has no IPv6
+    // route (the resolver may list IPv6 first regardless).
+    let mut last = None;
+    for address in resolve(target, settings.address_family).await? {
+        match tokio::time::timeout(settings.connect_timeout, TcpStream::connect(address)).await {
+            Ok(Ok(stream)) => return Ok(stream),
+            Ok(Err(error)) => last = Some(error),
+            Err(_) => {
+                last = Some(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "TCP connect timed out",
+                ))
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "TCP target resolved to nothing")
+    }))
 }
 
 #[cfg(feature = "tcp")]
-async fn resolve(target: &str, preference: AddressFamilyPreference) -> io::Result<SocketAddr> {
+async fn resolve(
+    target: &str,
+    preference: AddressFamilyPreference,
+) -> io::Result<std::vec::Vec<SocketAddr>> {
     let addresses = tokio::net::lookup_host(target)
         .await?
         .collect::<std::vec::Vec<_>>();
-    select_address(&addresses, preference)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "TCP target resolved to nothing"))
+    Ok(connect_order(&addresses, preference))
+}
+
+/// The addresses to try, in order: the one `select_address` picks first,
+/// then the rest as the resolver listed them.
+#[cfg(feature = "tcp")]
+fn connect_order(
+    addresses: &[SocketAddr],
+    preference: AddressFamilyPreference,
+) -> std::vec::Vec<SocketAddr> {
+    let mut order = std::vec::Vec::with_capacity(addresses.len());
+    if let Some(first) = select_address(addresses, preference) {
+        order.push(first);
+    }
+    for address in addresses {
+        if !order.contains(address) {
+            order.push(*address);
+        }
+    }
+    order
 }
 
 #[cfg(feature = "tcp")]
@@ -188,6 +224,36 @@ mod tests {
             select_address(&[v4], AddressFamilyPreference::Ipv6),
             Some(v4)
         );
+    }
+
+    #[test]
+    fn every_resolved_address_is_tried_the_preferred_first() {
+        let v6 = "[2001:db8::1]:4242".parse().expect("valid IPv6 address");
+        let v4 = "192.0.2.1:4242".parse().expect("valid IPv4 address");
+        let addresses = [v6, v4];
+
+        assert_eq!(
+            connect_order(&addresses, AddressFamilyPreference::System),
+            [v6, v4]
+        );
+        assert_eq!(
+            connect_order(&addresses, AddressFamilyPreference::Ipv4),
+            [v4, v6]
+        );
+        assert!(connect_order(&[], AddressFamilyPreference::System).is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_first_address_falls_back_to_the_next() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a local listener");
+        let port = listener.local_addr().expect("its address").port();
+        // "localhost" is ::1 and 127.0.0.1 on most systems, ::1 often first;
+        // only the IPv4 one listens, so the IPv6 one refuses and the next is
+        // taken.
+        let target = format!("localhost:{port}");
+        assert!(connect(&target, TcpConnectionSettings::STOCK).await.is_ok());
     }
 
     #[test]

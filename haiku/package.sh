@@ -14,6 +14,9 @@ APP=$HERE/build/Prns
 STAGE=$HERE/build/package
 VERSION=$(tr -d ' \n' < "$ROOT/VERSION" | tr '-' '_')-1
 ARCH=x86_64
+# Every package in a pkgman repository has its vendor: set it to the
+# repository's when publishing in one (VENDOR=retifs haiku/package.sh).
+VENDOR=${VENDOR:-Prns}
 
 for f in Prns prnsd-start config.default bin/prnsd; do
 	[ -f "$APP/$f" ] || { echo "missing $APP/$f: build it first" >&2; exit 1; }
@@ -41,7 +44,7 @@ and stops it; its icon sits in the Deskbar. prnsd starts at login; a new \
 installation begins with two public hubs (rns.beleth.net, rmap.world) and \
 interface discovery, in ~/.reticulum/config."
 packager		"Prns for Haiku"
-vendor			"Prns"
+vendor			"$VENDOR"
 licenses {
 	"MIT"
 	"Apache v2"

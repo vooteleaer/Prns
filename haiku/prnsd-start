@@ -1,0 +1,13 @@
+#!/bin/sh
+# Starts prnsd for the user (the launch job, or the Prns app): on the first
+# start, when there is no Reticulum configuration yet, it begins with the
+# package's (a public hub, interface discovery).
+HERE=$(cd "$(dirname "$0")" && pwd)
+CONFIG="$HOME/.reticulum"
+if [ ! -e "$CONFIG/config" ]; then
+	mkdir -p "$CONFIG"
+	cp "$HERE/config.default" "$CONFIG/config"
+fi
+PRNSD=/boot/system/bin/prnsd
+[ -x "$HERE/bin/prnsd" ] && PRNSD="$HERE/bin/prnsd"	# a build folder
+exec "$PRNSD" run --config "$CONFIG"

@@ -51,6 +51,31 @@ RUST_MIN_STACK=16777216 cargo build --release --locked --ignore-rust-version \
 - `--ignore-rust-version`: HaikuPorts has Rust 1.94; Prns asks for 1.96 but
   builds with it.
 
+## The package
+
+`haiku/` makes the `prns` package (an hpkg) on Haiku:
+
+```sh
+haiku/build.sh && haiku/package.sh
+pkgman install haiku/build/prns-<version>-x86_64.hpkg
+```
+
+- `prnsd` on the PATH (`/boot/system/bin`): every command as on other
+  systems (`prnsd status`, `path`, `probe`, `id`, `cp`, `x`, `interfaces`,
+  `start`/`stop`/`logs`).
+- prnsd as the user's launch_daemon job `x-vnd.prns-prnsd` at login
+  (`data/user_launch/prns`), through `prnsd-start`: a new user's first
+  `~/.reticulum/config` is `config.default` (a shared instance on TCP ports
+  37428/37429, two public hubs, interface discovery connecting up to three).
+- The Prns app (`haiku/app`, the Haiku API): prnsd's tray on Haiku. The same
+  icon as the tray's elsewhere (`prnsd/src/tray/icon.rs`, rendered the same
+  way) in the Deskbar, the same menu (status, terminal tools, configuration
+  folder, start and stop), and a window with the interfaces, from
+  `prnsd status --json`. The launch_daemon reads a package's jobs at login
+  only; until then the app starts prnsd itself.
+
+Not on Haiku: AutoInterface (`wifi-auto`, which needs netdev) and Bluetooth.
+
 ## Following Prns
 
 ```sh

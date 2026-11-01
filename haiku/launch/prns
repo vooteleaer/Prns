@@ -1,0 +1,14 @@
+# Prns as the user's launch_daemon jobs: prnsd (the shared Reticulum
+# instance, ~/.reticulum) and its icon in the Deskbar, both at login. The
+# package puts this in data/user_launch/ (every user) with its own paths; by
+# hand, copy it to ~/config/settings/launch/prns with APP replaced by the app
+# folder, then log in again.
+
+job x-vnd.prns-prnsd {
+	launch APP/prnsd-start
+}
+
+# The icon in the Deskbar's tray (added once; the Deskbar keeps it).
+job x-vnd.prns-deskbar {
+	launch APP/Prns --deskbar
+}

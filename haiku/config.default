@@ -1,0 +1,30 @@
+# Prns on Haiku: the configuration a new installation starts with
+# (~/.reticulum/config, written at the first start when there is none).
+# Edit it, or use `prnsd interfaces`; the Prns app restarts prnsd for you.
+
+[reticulum]
+  # A shared instance for the programs on this computer, on TCP ports.
+  share_instance = Yes
+  shared_instance_type = tcp
+  shared_instance_port = 37428
+  instance_control_port = 37429
+  enable_transport = No
+
+  # Learn other public interfaces from their announces, and connect to up
+  # to three of them.
+  discover_interfaces = Yes
+  autoconnect_discovered_interfaces = 3
+
+[interfaces]
+  # Public hubs to start from.
+  [[Beleth RNS Hub]]
+    type = TCPClientInterface
+    enabled = Yes
+    target_host = rns.beleth.net
+    target_port = 4242
+
+  [[RMap World]]
+    type = TCPClientInterface
+    enabled = Yes
+    target_host = rmap.world
+    target_port = 4242

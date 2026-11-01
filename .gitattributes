@@ -7,3 +7,6 @@ docs/website/web-flasher/browser/fixtures/signed-candidate/** -text
 tools/prns text eol=lf
 tools/prns.cmd text eol=crlf
 personal-hopspot/embedded/esp32/vendor/esp-wifi-sys-esp32s3-0.2.0/build.rs -text whitespace=trailing-space,space-before-tab,cr-at-eol
+
+# Haiku packaging: shell scripts and sources built on Haiku
+haiku/** text eol=lf

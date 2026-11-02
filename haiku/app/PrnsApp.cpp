@@ -29,6 +29,7 @@
 #include <StringList.h>
 #include <StringView.h>
 #include <Window.h>
+#include <image.h>
 
 #include <Json.h>
 
@@ -827,6 +828,31 @@ private:
 	in the Deskbar's process, so reading prnsd's state runs in a thread of
 	its own.
 */
+/*!	Keeps this image loaded in the Deskbar's process for good: a replicant's
+	image unloaded (a new version replacing it) left behind something a
+	later fork() in the Deskbar jumped into, and the Deskbar crashed. A
+	second reference, never dropped, keeps it mapped.
+*/
+static void
+PinImage()
+{
+	static bool pinned = false;
+	if (pinned)
+		return;
+	pinned = true;
+	addr_t self = (addr_t)&PinImage;
+	image_info info;
+	int32 cookie = 0;
+	while (get_next_image_info(B_CURRENT_TEAM, &cookie, &info) == B_OK) {
+		addr_t start = (addr_t)info.text;
+		if (self >= start && self < start + info.text_size) {
+			load_add_on(info.name);
+			return;
+		}
+	}
+}
+
+
 class _EXPORT DeskbarView : public BView {
 public:
 	DeskbarView(BRect frame)
@@ -859,6 +885,7 @@ public:
 	void AttachedToWindow()
 	{
 		BView::AttachedToWindow();
+		PinImage();
 		AdoptParentColors();
 		fPoller = spawn_thread(_Poll, "prns tray", B_LOW_PRIORITY, this);
 		resume_thread(fPoller);

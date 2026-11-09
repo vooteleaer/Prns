@@ -1,13 +1,15 @@
 #!/bin/sh
 # Builds prns_<version>~retifs<N>_<arch>.deb: prnsd as every user's
-# Reticulum shared instance (a systemd user service), for Debian 12+, Ubuntu
-# and Raspberry Pi OS. Headless (no tray). A packaging of upstream Prns for
-# retifs' testers until Prns publishes packages of its own.
+# Reticulum shared instance (a systemd user service), for Debian 11+,
+# Ubuntu 20.04+ (elementary OS 6+) and Raspberry Pi OS. Headless (no tray).
+# A packaging of upstream Prns for retifs' testers until Prns publishes
+# packages of its own.
 #
 #     retifs-packaging/deb/build-deb.sh [OUT] [amd64] [arm64]
 #
-# Built with cargo-zigbuild for glibc 2.36 when it's there, else for this
-# machine's glibc (arm64 then needs aarch64-linux-gnu-gcc).
+# Built with cargo-zigbuild for glibc 2.31 (Debian 11, Ubuntu 20.04 and
+# later) when it's there, else for this machine's glibc (arm64 then needs
+# aarch64-linux-gnu-gcc).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -18,7 +20,7 @@ export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$ROOT/target}
 REV=${PRNS_DEB_REV:-1}
 VERSION=$(tr -d '\r\n' < "$ROOT/VERSION")
 DEBVER="$VERSION~retifs$REV"
-GLIBC=${GLIBC:-2.36}
+GLIBC=${GLIBC:-2.31}
 if command -v cargo-zigbuild >/dev/null; then
     BUILD="cargo zigbuild"; SUFFIX=".$GLIBC"
 else

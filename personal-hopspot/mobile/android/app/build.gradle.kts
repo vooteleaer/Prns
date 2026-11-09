@@ -30,6 +30,13 @@ val experimentalWifiDirect =
             "prnsExperimentalWifiDirect must be true or false"
         }
     } ?: "false"
+// Off by default for now: a failing Wi-Fi Aware HAL was retried every second and wedged the system's Aware service.
+val wifiAware =
+    providers.gradleProperty("prnsWifiAware").orNull?.also { value ->
+        require(value == "true" || value == "false") {
+            "prnsWifiAware must be true or false"
+        }
+    } ?: "false"
 if (productionSigningRequested || experimentalWifiDirectDisabledRequested) {
     require(experimentalWifiDirect == "false") {
         "production validation cannot enable experimental Wi-Fi Direct"
@@ -65,6 +72,7 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "org.personal.hopspot.PrnsRuntimeProbe"
         buildConfigField("boolean", "EXPERIMENTAL_WIFI_DIRECT", experimentalWifiDirect)
+        buildConfigField("boolean", "WIFI_AWARE", wifiAware)
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }

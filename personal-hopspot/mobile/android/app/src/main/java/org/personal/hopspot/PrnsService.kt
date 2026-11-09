@@ -185,7 +185,9 @@ class PrnsService : Service() {
                 NativeBridge.WIFI_DIRECT_EXPERIMENTAL_DISABLED,
             )
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && wifiAwareLink == null) {
+        if (!BuildConfig.WIFI_AWARE) {
+            NativeBridge.nativeWifiAwareAvailability(NativeBridge.WIFI_AWARE_DISABLED)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && wifiAwareLink == null) {
             Log.i(TAG, "starting Wi-Fi Aware link")
             wifiAwareLink = try {
                 WifiAwareLink(applicationContext).also { it.start() }

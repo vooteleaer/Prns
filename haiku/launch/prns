@@ -8,7 +8,12 @@ job x-vnd.prns-prnsd {
 	launch APP/prnsd-start
 }
 
-# The icon in the Deskbar's tray (added once; the Deskbar keeps it).
-job x-vnd.prns-deskbar {
-	launch APP/Prns --deskbar
+# The icon in the Deskbar's tray (added once; the Deskbar keeps it): with the
+# desktop, once the Deskbar runs. At top level it started before app_server,
+# and a login sometimes never got its desktop (2026-11-09).
+target desktop {
+	job x-vnd.prns-deskbar {
+		launch APP/Prns --deskbar
+		requires x-vnd.Be-TSKB
+	}
 }

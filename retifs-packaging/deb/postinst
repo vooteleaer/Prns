@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+# Every user's session starts prnsd (unless a shared instance runs already).
+if [ "$1" = configure ] && command -v systemctl >/dev/null; then
+    systemctl --global enable prnsd.service >/dev/null 2>&1 || true
+    cat <<MSG
+prnsd is installed. It starts with your next login; to start it now, as yourself:
+    systemctl --user daemon-reload
+    systemctl --user start prnsd
+Its configuration is ~/.reticulum (written on first start). On a machine without
+a desktop session: sudo loginctl enable-linger USER.
+MSG
+fi
+exit 0

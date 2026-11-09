@@ -1,0 +1,19 @@
+prns for Debian
+===============
+
+prnsd is Prns's Reticulum daemon. This package starts it in every user's
+session (systemd user service prnsd.service) as the machine's Reticulum
+shared instance, unless one already runs (rnsd, or another prnsd): then it
+stays off and apps use that one.
+
+    systemctl --user status prnsd
+    journalctl --user -u prnsd
+    prnsd logs | prnsd restart | prnsd stop
+
+Its configuration is ~/.reticulum/config, written on the first start with
+the automatic interfaces on; add TCP interfaces there to reach hubs.
+
+This build is headless (no tray). It's a packaging of upstream Prns
+(https://github.com/KenAKAFrosty/Prns) for retifs' testers, from the fork
+https://github.com/vooteleaer/Prns (branch retifs), until Prns publishes
+packages of its own.

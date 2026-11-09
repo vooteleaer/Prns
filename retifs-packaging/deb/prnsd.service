@@ -1,0 +1,15 @@
+# Reticulum for this user's session: prnsd as the machine's shared instance,
+# started only when none runs yet (rnsd, or another prnsd). Its
+# configuration is ~/.reticulum, as for any Reticulum program.
+[Unit]
+Description=Reticulum shared instance (prnsd)
+
+[Service]
+Type=simple
+ExecCondition=/usr/lib/prns/no-shared-instance
+ExecStart=/usr/bin/prnsd run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

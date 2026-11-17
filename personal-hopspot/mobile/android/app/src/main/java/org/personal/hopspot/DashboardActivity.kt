@@ -134,7 +134,7 @@ class DashboardActivity : Activity() {
         }
         column.addView(text("Personal RNS", 24f, bold = true))
         nodeStatus = text("Starting…", 14f).also { column.addView(it) }
-        column.addView(row(button("Restart") { restartNode() }))
+        column.addView(row(button("Restart") { restartNode() }, button("Share log") { shareLog() }))
 
         column.addView(sectionHeader("Shared instance"))
         sharedInstanceStatus = text("", 14f).also { column.addView(it) }
@@ -250,6 +250,23 @@ class DashboardActivity : Activity() {
             main.post {
                 refreshQueued = false
                 if (snapshot != null && !isFinishing) render(snapshot)
+            }
+        }
+    }
+
+    private fun shareLog() {
+        worker.execute {
+            val log = runCatching { HopspotLog.tail(this) }.getOrDefault("")
+            main.post {
+                if (log.isEmpty()) {
+                    Toast.makeText(this, "The log is empty", Toast.LENGTH_SHORT).show()
+                    return@post
+                }
+                val send = Intent(Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, "Personal RNS log")
+                    .putExtra(Intent.EXTRA_TEXT, log)
+                startActivity(Intent.createChooser(send, "Share log"))
             }
         }
     }

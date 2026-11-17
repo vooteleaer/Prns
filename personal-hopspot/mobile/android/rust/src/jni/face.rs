@@ -38,6 +38,16 @@ fn init_logging() {
                 .with_max_level(log::LevelFilter::Info)
                 .with_tag("HopspotRust"),
         );
+        // A panic's message goes to stderr, which Android drops; put it in the log instead.
+        let default = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            log::error!(
+                "panic in thread {:?}: {info}\n{}",
+                std::thread::current().name(),
+                std::backtrace::Backtrace::force_capture()
+            );
+            default(info);
+        }));
     });
 }
 

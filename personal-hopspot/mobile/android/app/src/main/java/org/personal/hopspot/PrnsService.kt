@@ -47,6 +47,7 @@ class PrnsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        HopspotLog.start(this)
         serviceStartedAtElapsedMs = SystemClock.elapsedRealtime()
         createNotificationChannel()
         if (!startForegroundNow()) {

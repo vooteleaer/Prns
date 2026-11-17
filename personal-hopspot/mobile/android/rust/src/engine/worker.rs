@@ -178,7 +178,10 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
 
     let local = match SharedInstanceServer::with_port(ports.local).bind().await {
         Ok(local) => local,
-        Err(_) => return fail_start(ready_tx, EngineStartError::LocalListenerBind),
+        Err(error) => {
+            log::error!("hopspot engine: shared instance port {}: {error:?}", ports.local);
+            return fail_start(ready_tx, EngineStartError::LocalListenerBind);
+        }
     };
     handle.supervise(local);
 
@@ -187,13 +190,17 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
         .await
     {
         Ok(rpc) => rpc,
-        Err(_) => return fail_start(ready_tx, EngineStartError::RpcListenerBind),
+        Err(error) => {
+            log::error!("hopspot engine: RPC port {}: {error:?}", ports.rpc);
+            return fail_start(ready_tx, EngineStartError::RpcListenerBind);
+        }
     };
     tokio::spawn(rpc.run());
 
     let service_discovery = match platform.service_discovery.take_service_discovery() {
         Ok(service_discovery) => service_discovery,
         Err(_service_discovery_unavailable) => {
+            log::error!("hopspot engine: the platform's service discovery is unavailable");
             return fail_start(ready_tx, EngineStartError::WorkerStopped);
         }
     };
@@ -310,6 +317,7 @@ fn fail_start(
     ready_tx: Sender<Result<EngineResources, EngineStartError>>,
     error: EngineStartError,
 ) -> WorkerExit {
+    log::error!("hopspot engine start failed: {error:?}");
     let _ = ready_tx.send(Err(error));
     WorkerExit::Failed(error.failure())
 }

@@ -80,6 +80,7 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
         ..
     } = input;
 
+    let started = std::time::Instant::now();
     let node_bootstrap = load_host_node_identity(&storage_dir.join(NODE_IDENTITY_STORAGE.as_str()));
     if log_identity_persistence("node", node_bootstrap.persistence()).is_err() {
         return fail_start(ready_tx, EngineStartError::StorageConfiguration);
@@ -123,6 +124,7 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
         RemoteControlSelfAnnouncement::Destination(destination_hashes.node_page),
     );
 
+    log::info!("hopspot engine: identities loaded in {:?}", started.elapsed());
     let persistence_store = match persistence::open(&storage_dir) {
         Ok(persistence_store) => persistence_store,
         Err(error) => {
@@ -150,6 +152,7 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
     .with_timeline_origin(timeline_origin);
     let restored = persistence_store.restore(&mut node);
     let restore = PersistenceRestore::from_report(&restored);
+    log::info!("hopspot engine: state restored by {:?}: {restore:?}", started.elapsed());
     let handle = node.handle();
     let persistence =
         PersistenceWorker::new(handle.clone(), persistence_store, rotated_rx, restore);
@@ -255,6 +258,7 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
         configured: configured.clone(),
         plan_context: plan_context.clone(),
     };
+    log::info!("hopspot engine: interfaces set up by {:?}", started.elapsed());
     let mut node_run = Box::pin(node.run());
     let initialized = {
         let initialization = persistence.initialize();
@@ -276,6 +280,7 @@ async fn run_engine(input: WorkerInput) -> WorkerExit {
             result = &mut initialization => result,
         }
     };
+    log::info!("hopspot engine: first state write done by {:?}", started.elapsed());
     if initialized.is_err() {
         return fail_start(ready_tx, EngineStartError::PersistenceWrite);
     }

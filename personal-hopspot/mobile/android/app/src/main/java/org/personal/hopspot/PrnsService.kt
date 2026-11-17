@@ -23,6 +23,7 @@ import android.os.SystemClock
 import android.util.Log
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.Executors
 
 class PrnsService : Service() {
     inner class LocalBinder : Binder() {
@@ -33,6 +34,8 @@ class PrnsService : Service() {
     private val localBinder = LocalBinder()
     private val clientMessengers = CopyOnWriteArraySet<Messenger>()
     private val clientMessenger = Messenger(ClientHandler())
+    private val main = Handler(Looper.getMainLooper())
+    private val engineThread = Executors.newSingleThreadExecutor()
 
     private var renderHandle: Long = 0L
     private var usbLink: UsbLink? = null
@@ -42,6 +45,7 @@ class PrnsService : Service() {
     private var bleLink: BleLink? = null
     private var rnodeBleLink: RNodeBleLink? = null
     private var serviceStartedAtElapsedMs: Long = 0L
+    @Volatile
     private var lastServiceError: String? = null
     private var isForeground = false
 
@@ -91,6 +95,7 @@ class PrnsService : Service() {
             NativeBridge.nativeFree(renderHandle)
             renderHandle = 0L
         }
+        engineThread.shutdown()
         stopForegroundCompat()
         super.onDestroy()
     }
@@ -101,18 +106,21 @@ class PrnsService : Service() {
         ensureEngineStarted()
     }
 
-    /** Stops the node (whatever its state) and starts it again. Blocks; call off the main thread. */
-    @Synchronized
+    /** Stops the node (whatever its state) and starts it again, in the background. */
     fun restartEngine() {
-        stopPlatformLinks()
-        val stopFailure = NativeBridge.nativeStopEngine()
-        if (stopFailure == FAILURE_SHUTDOWN_TIMEOUT) {
-            lastServiceError = "engine_stop:$stopFailure"
-            Log.e(TAG, "restart: native engine did not stop in time")
-            refreshNotification()
-            return
+        main.post {
+            stopPlatformLinks()
+            if (!engineThread.isShutdown) engineThread.execute {
+                val stopFailure = NativeBridge.nativeStopEngine()
+                if (stopFailure == FAILURE_SHUTDOWN_TIMEOUT) {
+                    lastServiceError = "engine_stop:$stopFailure"
+                    Log.e(TAG, "restart: native engine did not stop in time")
+                    main.post { refreshNotification() }
+                } else {
+                    startEngineNow()
+                }
+            }
         }
-        ensureEngineStarted()
     }
 
     @Synchronized
@@ -141,12 +149,21 @@ class PrnsService : Service() {
         NativeBridge.nativeAnnounce()
     }
 
-    @Synchronized
+    /**
+     * Starts the node on [engineThread]: restoring a large saved state can take longer than the
+     * main thread may block. Not under the service's lock, which rendering also takes.
+     */
     private fun ensureEngineStarted() {
+        if (!engineThread.isShutdown) engineThread.execute { startEngineNow() }
+    }
+
+    private fun startEngineNow() {
         when (NativeBridge.engineState()) {
             PrnsEngineState.RUNNING -> {
-                startPlatformLinks()
-                refreshNotification()
+                main.post {
+                    startPlatformLinks()
+                    refreshNotification()
+                }
                 return
             }
             PrnsEngineState.STARTING -> return
@@ -157,7 +174,7 @@ class PrnsService : Service() {
                 val cleanupFailure = NativeBridge.nativeStopEngine()
                 if (cleanupFailure == FAILURE_SHUTDOWN_TIMEOUT) {
                     lastServiceError = "engine_cleanup:$cleanupFailure"
-                    refreshNotification()
+                    main.post { refreshNotification() }
                     return
                 }
             }
@@ -166,13 +183,13 @@ class PrnsService : Service() {
         val state = NativeBridge.engineState()
         if (failure == 0 && state == PrnsEngineState.RUNNING) {
             lastServiceError = null
-            startPlatformLinks()
+            main.post { startPlatformLinks() }
         } else {
             val typedFailure = NativeBridge.engineFailure()
             lastServiceError = "engine_start:${typedFailure.name}:${typedFailure.code}"
             Log.e(TAG, "native engine startup failed: $lastServiceError")
         }
-        refreshNotification()
+        main.post { refreshNotification() }
     }
 
     @Synchronized

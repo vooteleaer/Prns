@@ -45,7 +45,9 @@ use persistence::{PersistenceHealth, PersistenceSnapshot};
 use personal_rns::PlanRuntimeContext;
 
 const USB_INTERFACE_ID: InterfaceId = InterfaceId::new([0xD0; 8]);
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+// Restoring and first writing back a large saved state (many routes and identities) takes
+// seconds on a phone; the caller waits off the main thread.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(120);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub(super) const ANDROID_PORT: &str = "android-usb";

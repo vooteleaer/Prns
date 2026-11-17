@@ -134,6 +134,7 @@ class DashboardActivity : Activity() {
         }
         column.addView(text("Personal RNS", 24f, bold = true))
         nodeStatus = text("Starting…", 14f).also { column.addView(it) }
+        column.addView(row(button("Restart") { restartNode() }))
 
         column.addView(sectionHeader("Shared instance"))
         sharedInstanceStatus = text("", 14f).also { column.addView(it) }
@@ -253,6 +254,28 @@ class DashboardActivity : Activity() {
         }
     }
 
+    private fun restartNode() {
+        val current = service
+        if (current == null) {
+            PrnsService.start(this)
+            return
+        }
+        nodeStatus.text = "Restarting…"
+        worker.execute {
+            current.restartEngine()
+            main.post { refresh() }
+        }
+    }
+
+    private fun failureText(failure: PrnsEngineFailure): String =
+        when (failure.code) {
+            PrnsService.FAILURE_LOCAL_LISTENER_BIND, PrnsService.FAILURE_RPC_LISTENER_BIND ->
+                "Failed: port ${PrnsService.LOCAL_RNS_PORT} or ${PrnsService.RPC_PORT} is in use, " +
+                    "probably by another app's own Reticulum (Columba, Sideband…). Close that app, " +
+                    "press Restart here, then open it again: it will use this node."
+            else -> "Failed: ${failure.name}"
+        }
+
     private class DashboardSnapshot(
         val state: PrnsEngineState,
         val health: PrnsRuntimeHealth,
@@ -269,7 +292,7 @@ class DashboardActivity : Activity() {
                     "↓ ${formatBytes(health.rxBytes)} · ↑ ${formatBytes(health.txBytes)}"
             PrnsEngineState.STARTING -> "Starting…"
             PrnsEngineState.STOPPED -> "Stopped"
-            PrnsEngineState.FAILED -> "Failed: ${NativeBridge.engineFailure().name}"
+            PrnsEngineState.FAILED -> failureText(NativeBridge.engineFailure())
         }
         sharedInstanceStatus.text =
             "Other apps reach this node at 127.0.0.1:${PrnsService.LOCAL_RNS_PORT} " +

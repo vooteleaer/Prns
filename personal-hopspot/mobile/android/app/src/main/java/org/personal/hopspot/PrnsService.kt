@@ -100,6 +100,20 @@ class PrnsService : Service() {
         ensureEngineStarted()
     }
 
+    /** Stops the node (whatever its state) and starts it again. Blocks; call off the main thread. */
+    @Synchronized
+    fun restartEngine() {
+        stopPlatformLinks()
+        val stopFailure = NativeBridge.nativeStopEngine()
+        if (stopFailure == FAILURE_SHUTDOWN_TIMEOUT) {
+            lastServiceError = "engine_stop:$stopFailure"
+            Log.e(TAG, "restart: native engine did not stop in time")
+            refreshNotification()
+            return
+        }
+        ensureEngineStarted()
+    }
+
     @Synchronized
     fun postInput(code: Int): Int =
         if (renderHandle != 0L) {
@@ -137,8 +151,10 @@ class PrnsService : Service() {
             PrnsEngineState.STARTING -> return
             PrnsEngineState.STOPPED -> Unit
             PrnsEngineState.FAILED -> {
+                // Cleaning up a failed engine reports that engine's failure; only a shutdown
+                // timeout means it is still there, so anything else may start a new one.
                 val cleanupFailure = NativeBridge.nativeStopEngine()
-                if (cleanupFailure != 0) {
+                if (cleanupFailure == FAILURE_SHUTDOWN_TIMEOUT) {
                     lastServiceError = "engine_cleanup:$cleanupFailure"
                     refreshNotification()
                     return
@@ -548,6 +564,10 @@ class PrnsService : Service() {
         private const val NOTIFICATION_CHANNEL = "personal_rns_node"
         internal const val LOCAL_RNS_PORT = 37428
         internal const val RPC_PORT = LOCAL_RNS_PORT + 1
+        // MobileEngineFailure codes (personal-hopspot core, mobile.rs).
+        internal const val FAILURE_LOCAL_LISTENER_BIND = 4
+        internal const val FAILURE_RPC_LISTENER_BIND = 5
+        internal const val FAILURE_SHUTDOWN_TIMEOUT = 8
 
         fun start(context: Context) {
             val intent = Intent(context, PrnsService::class.java).setAction(ACTION_START)
